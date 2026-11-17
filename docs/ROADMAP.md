@@ -1,21 +1,21 @@
 # Roadmap (6 weeks)
 
 ## Phase 0: harness (days 1-2)
-- [ ] `docker compose -f docker/docker-compose.yml up -d` (primary :5432, shadow :5434)
-- [ ] Confirm `docker/n_plus_one.py` runs against the primary directly
+- [x] `docker compose -f docker/docker-compose.yml up -d` (primary :5432, shadow :5434)
+- [x] Confirm `docker/n_plus_one.py` runs against the primary directly (`scripts/verify-phase0.sh`, `PGURL`)
 
 ## Phase 1: wire + pass-through daemon (Week 1)
-- [ ] Startup decoder: SSLRequest/GSSENCRequest → `N`, CancelRequest, StartupMessage
-- [ ] Header-peek forwarder with chunked streaming of large bodies
-- [ ] `pgflightd` listener on :5433, `CancelRegistry` (Vec<u8> secrets)
-- [ ] Control socket skeleton (mode 0600)
+- [x] Startup decoder: SSLRequest/GSSENCRequest → `N`, CancelRequest, StartupMessage
+- [x] Header-peek forwarder with chunked streaming of large bodies
+- [x] `pgflightd` listener on :5433, `CancelRegistry` (Vec<u8> secrets)
+- [x] Control socket skeleton (mode 0600)
 - **Accept:** `psql` + `sqlx` through :5433; `SELECT pg_sleep(10)` + Ctrl+C cancels
 
 ## Phase 2: expected-op queue + txn tracker (Week 2)
-- [ ] Expected-op queue, push-before-write, drain-to-Sync on error
-- [ ] Multi-statement `Q`, `I`, `s`, Describe/Close, async messages
-- [ ] COPY pass-through, txn_id, idle-in-txn
-- [ ] `queue_wait_us` vs `exec_us`
+- [x] Expected-op queue, push-before-write, drain-to-Sync on error
+- [x] Multi-statement `Q`, `I`, `s`, Describe/Close, async messages
+- [x] COPY pass-through, txn_id, idle-in-txn
+- [x] `queue_wait_us` vs `exec_us`
 - **Accept:** pipelined sqlx, error mid-pipeline, `pg_dump` with zero desyncs
 
 ## Phase 3: analysis + storage (Week 3)

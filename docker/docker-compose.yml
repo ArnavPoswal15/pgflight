@@ -4,9 +4,21 @@ services:
     environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: shop }
     ports: ["5432:5432"]
     volumes: ["./seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shop"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
   postgres-shadow:
     image: postgres:17
     environment: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: shop }
     ports: ["5434:5432"]
     volumes: ["./seed.sql:/docker-entrypoint-initdb.d/seed.sql:ro"]
     # Shadow must hold representative data and be ANALYZEd; an empty schema gives meaningless plans.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shop"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s

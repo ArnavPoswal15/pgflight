@@ -2,6 +2,4 @@
 name = "pg-analyzer"
 version.workspace = true
 edition.workspace = true
-
-[dependencies]
-thiserror.workspace = true
+license = "MIT"

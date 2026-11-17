@@ -2,6 +2,7 @@
 name = "pg-proxy"
 version.workspace = true
 edition.workspace = true
+license = "MIT"
 
 [dependencies]
 thiserror.workspace = true
@@ -9,5 +10,12 @@ bytes.workspace = true
 tokio.workspace = true
 parking_lot.workspace = true
 dashmap.workspace = true
-tracing.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true
+webpki-roots.workspace = true
+rustls-pemfile.workspace = true
 pg-wire = { path = "../pg-wire" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }

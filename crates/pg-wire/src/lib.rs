@@ -1,6 +1,10 @@
 //! PostgreSQL v3.0 / v3.2 framing. Frontend and backend tags are SEPARATE enums
 //! because letters collide (D, C, E, S mean different things per direction).
 
+pub mod frame;
+pub mod ssl;
+pub mod startup;
+
 pub const SSL_REQUEST: i32 = 80877103;
 pub const CANCEL_REQUEST: i32 = 80877102;
 pub const GSSENC_REQUEST: i32 = 80877104;
@@ -16,21 +20,42 @@ pub enum WireError {
     BadLength(i32),
     #[error("unknown tag {0:#x}")]
     UnknownTag(u8),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrontendTag {
-    Query, Parse, Bind, Describe, Execute, Close, Sync, Flush,
-    CopyData, CopyDone, CopyFail, Terminate, PasswordOrSasl,
+    Query,
+    Parse,
+    Bind,
+    Describe,
+    Execute,
+    Close,
+    Sync,
+    Flush,
+    CopyData,
+    CopyDone,
+    CopyFail,
+    Terminate,
+    PasswordOrSasl,
 }
 
 impl FrontendTag {
     pub fn from_byte(b: u8) -> Result<Self, WireError> {
         Ok(match b {
-            b'Q' => Self::Query, b'P' => Self::Parse, b'B' => Self::Bind,
-            b'D' => Self::Describe, b'E' => Self::Execute, b'C' => Self::Close,
-            b'S' => Self::Sync, b'H' => Self::Flush, b'd' => Self::CopyData,
-            b'c' => Self::CopyDone, b'f' => Self::CopyFail, b'X' => Self::Terminate,
+            b'Q' => Self::Query,
+            b'P' => Self::Parse,
+            b'B' => Self::Bind,
+            b'D' => Self::Describe,
+            b'E' => Self::Execute,
+            b'C' => Self::Close,
+            b'S' => Self::Sync,
+            b'H' => Self::Flush,
+            b'd' => Self::CopyData,
+            b'c' => Self::CopyDone,
+            b'f' => Self::CopyFail,
+            b'X' => Self::Terminate,
             b'p' => Self::PasswordOrSasl,
             other => return Err(WireError::UnknownTag(other)),
         })
@@ -39,32 +64,67 @@ impl FrontendTag {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendTag {
-    Authentication, BackendKeyData, ParameterStatus, ReadyForQuery,
-    ParseComplete, BindComplete, CloseComplete, NoData, ParameterDescription,
-    RowDescription, DataRow, CommandComplete, EmptyQuery, PortalSuspended,
-    ErrorResponse, NoticeResponse, NotificationResponse,
-    CopyInResponse, CopyOutResponse, CopyBothResponse, CopyData, CopyDone,
+    Authentication,
+    BackendKeyData,
+    ParameterStatus,
+    ReadyForQuery,
+    ParseComplete,
+    BindComplete,
+    CloseComplete,
+    NoData,
+    ParameterDescription,
+    RowDescription,
+    DataRow,
+    CommandComplete,
+    EmptyQuery,
+    PortalSuspended,
+    ErrorResponse,
+    NoticeResponse,
+    NotificationResponse,
+    CopyInResponse,
+    CopyOutResponse,
+    CopyBothResponse,
+    CopyData,
+    CopyDone,
     NegotiateProtocolVersion,
 }
 
 impl BackendTag {
     pub fn from_byte(b: u8) -> Result<Self, WireError> {
         Ok(match b {
-            b'R' => Self::Authentication, b'K' => Self::BackendKeyData, b'S' => Self::ParameterStatus,
-            b'Z' => Self::ReadyForQuery, b'1' => Self::ParseComplete, b'2' => Self::BindComplete,
-            b'3' => Self::CloseComplete, b'n' => Self::NoData, b't' => Self::ParameterDescription,
-            b'T' => Self::RowDescription, b'D' => Self::DataRow, b'C' => Self::CommandComplete,
-            b'I' => Self::EmptyQuery, b's' => Self::PortalSuspended, b'E' => Self::ErrorResponse,
-            b'N' => Self::NoticeResponse, b'A' => Self::NotificationResponse,
-            b'G' => Self::CopyInResponse, b'H' => Self::CopyOutResponse, b'W' => Self::CopyBothResponse,
-            b'd' => Self::CopyData, b'c' => Self::CopyDone, b'v' => Self::NegotiateProtocolVersion,
+            b'R' => Self::Authentication,
+            b'K' => Self::BackendKeyData,
+            b'S' => Self::ParameterStatus,
+            b'Z' => Self::ReadyForQuery,
+            b'1' => Self::ParseComplete,
+            b'2' => Self::BindComplete,
+            b'3' => Self::CloseComplete,
+            b'n' => Self::NoData,
+            b't' => Self::ParameterDescription,
+            b'T' => Self::RowDescription,
+            b'D' => Self::DataRow,
+            b'C' => Self::CommandComplete,
+            b'I' => Self::EmptyQuery,
+            b's' => Self::PortalSuspended,
+            b'E' => Self::ErrorResponse,
+            b'N' => Self::NoticeResponse,
+            b'A' => Self::NotificationResponse,
+            b'G' => Self::CopyInResponse,
+            b'H' => Self::CopyOutResponse,
+            b'W' => Self::CopyBothResponse,
+            b'd' => Self::CopyData,
+            b'c' => Self::CopyDone,
+            b'v' => Self::NegotiateProtocolVersion,
             other => return Err(WireError::UnknownTag(other)),
         })
     }
 
     /// Async messages can arrive at any time and must NOT pop the expected-op queue.
     pub fn is_async(self) -> bool {
-        matches!(self, Self::NoticeResponse | Self::ParameterStatus | Self::NotificationResponse)
+        matches!(
+            self,
+            Self::NoticeResponse | Self::ParameterStatus | Self::NotificationResponse
+        )
     }
 }
 

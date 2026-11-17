@@ -42,7 +42,7 @@ pgflight is built for teams that feel query pain in production but do not want a
 
 - **📐 Engineered for agents.** `AGENTS.md`, ADRs under `docs/adr/`, and `.agents/skills/` encode invariants (zero-copy `DataRow`, push-before-write, no heavy work on the forward path) so humans and coding agents implement the same contract.
 
-> **Note:** Core crates and the daemon are scaffolded toward [Phase 1–6](docs/ROADMAP.md). The Docker harness and N+1 demo script work today; the pass-through proxy and analysis pipeline are active roadmap work.
+> **Note:** [Phases 0–2](docs/ROADMAP.md) (harness, framed proxy, expected-op queue) are implemented; **Phase 3+** (fingerprinting, N+1 alerts, SQLite, shadow replay, UI) is still roadmap.
 
 ---
 
@@ -81,13 +81,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-### 4. Run the daemon (roadmap)
-
-When Phase 1 lands, the intended invocation is:
+### 4. Run the daemon
 
 ```bash
 cargo run -p pgflightd -- --listen 127.0.0.1:5433 --upstream 127.0.0.1:5432
 ```
+
+TLS upstream (optional): add `--upstream-tls` and, if needed, `--upstream-ca path/to/ca.pem`.
 
 Then route the app through the proxy:
 
@@ -95,7 +95,18 @@ Then route the app through the proxy:
 psql "postgres://postgres:postgres@127.0.0.1:5433/shop"
 ```
 
-Today `pgflightd` prints a Phase 1 placeholder — follow [docs/ROADMAP.md](docs/ROADMAP.md) for acceptance criteria (`psql` + ORM + cancel).
+Control socket (JSON ping): `~/.pgflight/control.sock` (mode `0600`).
+
+### Verify Phases 0–2
+
+```bash
+make harness                    # Phase 0: compose + n_plus_one on :5432
+./scripts/accept-phase1.sh      # Phase 1: psql through pgflightd
+./scripts/accept-phase2.sh      # Phase 2: ignored Rust tests (daemon must be running)
+cargo test -p pg-proxy -- --ignored
+```
+
+GitLab CI runs fmt, clippy, unit tests, and Docker integration — see [.gitlab-ci.yml](.gitlab-ci.yml).
 
 ### 5. Reproduce an N+1 pattern
 

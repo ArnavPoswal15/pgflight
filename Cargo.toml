@@ -14,7 +14,6 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
 
 [workspace.dependencies]
 bytes = "1"
@@ -23,3 +22,11 @@ tokio = { version = "1", features = ["full"] }
 parking_lot = "0.12"
 dashmap = "5"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = "0.26"
+webpki-roots = "0.26"
+rustls-pemfile = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

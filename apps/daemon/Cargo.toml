@@ -2,11 +2,17 @@
 name = "pgflightd"
 version.workspace = true
 edition.workspace = true
+license = "MIT"
 
 [dependencies]
-pg-wire = { path = "../../crates/pg-wire" }
 pg-proxy = { path = "../../crates/pg-proxy" }
-pg-analyzer = { path = "../../crates/pg-analyzer" }
-pg-storage = { path = "../../crates/pg-storage" }
-pg-shadow = { path = "../../crates/pg-shadow" }
 tokio.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
