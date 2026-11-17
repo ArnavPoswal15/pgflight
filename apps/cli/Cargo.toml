@@ -1,0 +1,10 @@
+[package]
+name = "pgflight-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "pgflight"
+path = "src/main.rs"
+
+[dependencies]

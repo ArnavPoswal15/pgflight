@@ -1,0 +1,67 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+*.pdb
+
+# Debug / coverage
+*.profraw
+*.profdata
+coverage/
+tarpaulin-report.html
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editors / IDEs
+.idea/
+*.swp
+*.swo
+*~
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+credentials.json
+
+# pgflight runtime data (local dev)
+*.pgrec
+*.pgrec.*
+.pgflight/
+
+# SQLite (local WAL / journals)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Tauri / desktop (Phase 4)
+apps/desktop/node_modules/
+apps/desktop/dist/
+apps/desktop/src-tauri/target/
+apps/desktop/.tauri/
+
+# Frontend tool caches
+node_modules/
+.npm/
+.pnpm-store/
+dist/
+build/
+.parcel-cache/
+.turbo/
+.next/
+out/
+
+# Docker (ad-hoc local overrides)
+docker/.env
+docker/data/

@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/pg-wire",
+  "crates/pg-proxy",
+  "crates/pg-analyzer",
+  "crates/pg-storage",
+  "crates/pg-shadow",
+  "apps/daemon",
+  "apps/cli",
+]
+# apps/desktop (Tauri v2) is added in Phase 4; it is a thin client of pgflightd.
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+bytes = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+parking_lot = "0.12"
+dashmap = "5"
+tracing = "0.1"

@@ -1,0 +1,13 @@
+[package]
+name = "pg-proxy"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+bytes.workspace = true
+tokio.workspace = true
+parking_lot.workspace = true
+dashmap.workspace = true
+tracing.workspace = true
+pg-wire = { path = "../pg-wire" }

@@ -1,0 +1,12 @@
+[package]
+name = "pgflightd"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+pg-wire = { path = "../../crates/pg-wire" }
+pg-proxy = { path = "../../crates/pg-proxy" }
+pg-analyzer = { path = "../../crates/pg-analyzer" }
+pg-storage = { path = "../../crates/pg-storage" }
+pg-shadow = { path = "../../crates/pg-shadow" }
+tokio.workspace = true
