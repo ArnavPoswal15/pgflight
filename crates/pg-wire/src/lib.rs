@@ -1,7 +1,9 @@
 //! PostgreSQL v3.0 / v3.2 framing. Frontend and backend tags are SEPARATE enums
 //! because letters collide (D, C, E, S mean different things per direction).
 
+pub mod backend_msg;
 pub mod frame;
+pub mod frontend;
 pub mod ssl;
 pub mod startup;
 

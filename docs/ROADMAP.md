@@ -18,21 +18,21 @@
 - [x] `queue_wait_us` vs `exec_us`
 - **Accept:** pipelined sqlx, error mid-pipeline, `pg_dump` with zero desyncs
 
-## Phase 3: analysis + storage (Week 3)
-- [ ] ADR-001/002 finalized; `pg_query` fingerprint + LRU
-- [ ] N+1 burst detector with config thresholds
-- [ ] Ring buffer + SQLite WAL batch writer; retention + redaction
-- **Accept:** n_plus_one.py yields an N+1 alert with count 50
+## Phase 3: Query Flight Recorder core (Week 3)
+- [x] ADR-001/002 implemented; `pg_query` fingerprint + LRU (`pg-analyzer`)
+- [x] N+1 burst detector (`N1Detector`); `FlightRecorder` ring + SQLite WAL (250ms)
+- [x] `pgflightd --record`, `--redact-params`, `--data-dir`; `scripts/accept-phase3.sh`
+- **Accept:** `n_plus_one.py` through :5433 → `anomalies.repeat_count >= 50` (needs Postgres + shop DB)
 
-## Phase 4: clients (Week 4)
-- [ ] Daemon event stream with 100ms batching
-- [ ] CLI `tail`/`status`; Tauri UI (tray, live stream, leaderboard)
-- **Accept:** `pgbench -c 16 -T 15` through proxy; measure added p99 against the 0.3ms SLO
+## Phase 4: cockpit clients (Week 4)
+- [x] `pgflight-control` protocol; subscribe/status; EventHub 100ms `FlightLogBatch`
+- [x] CLI `pgflight status|tail|ping|export`; Tauri v2 scaffold (Live Log + Patterns; Replay/Compare disabled)
+- **Accept:** `pgbench -c 16 -T 15` direct vs :5433 — document p99 delta vs 0.3ms SLO (measurement)
 
-## Phase 5: shadow + replay (Week 5)
+## Phase 5: replay & plan compare (Week 5)
 - [ ] Guard + SELECT-only role + READ ONLY wrapper
 - [ ] EXPLAIN runner + heuristics
-- [ ] `.pgrec` writer/reader; A/B replay with snapshot reset and warm-up
+- [ ] `.pgrec` ZSTD writer/reader; A/B replay with snapshot reset and warm-up
 - **Accept:** drop/add index → A vs B diff shows Seq Scan removed
 
 ## Phase 6: hardening (Week 6)

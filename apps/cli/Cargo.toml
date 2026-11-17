@@ -1,5 +1,5 @@
 [package]
-name = "pgflight-cli"
+name = "pgflight"
 version.workspace = true
 edition.workspace = true
 license = "MIT"
@@ -9,3 +9,7 @@ name = "pgflight"
 path = "src/main.rs"
 
 [dependencies]
+clap.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+pgflight-control = { path = "../../crates/pgflight-control" }

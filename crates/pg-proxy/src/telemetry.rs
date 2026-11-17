@@ -9,8 +9,15 @@ pub const EVENT_CHANNEL_CAP: usize = 8192;
 pub struct RawQueryEvent {
     pub query_id: u64,
     pub txn_id: u64,
+    pub connection_id: u64,
+    pub app_name: String,
     pub queue_wait_us: u64,
     pub exec_us: u64,
+    pub raw_sql: String,
+    pub params_json: Option<String>,
+    pub params_truncated: bool,
+    pub rows_returned: u64,
+    pub error_code: Option<String>,
 }
 
 #[derive(Debug, Clone)]

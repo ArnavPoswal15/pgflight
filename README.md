@@ -4,11 +4,11 @@
 
 <p align="center"><em>Transparent proxy, analyzer, and shadow replay — one daemon between your app and Postgres.</em></p>
 
-# pgflight
+# pgflight — Query Flight Recorder
 
-**Observe. Detect. Replay.** A transparent PostgreSQL wire proxy, N+1 detector, and shadow query replayer for macOS — in Rust.
+**Record what happened. Spot expensive patterns. Investigate regressions.** A **Query Flight Recorder** for PostgreSQL on macOS — in Rust.
 
-Sit pgflight between your app and Postgres: traffic keeps flowing with near–zero-copy forwarding, while a side channel fingerprints queries, spots N+1 patterns, records flights, and safely replays them against a shadow database for EXPLAIN plans and A/B benchmarks. The daemon owns the hot path; the CLI and desktop UI are thin clients over a local control socket.
+The transparent proxy on `:5433` is the **sensor**: traffic keeps flowing with near–zero-copy forwarding, while a bounded side channel fingerprints queries, writes a durable flight log (ring buffer + SQLite WAL), and flags N+1 bursts. Phase 5 adds `.pgrec` replay and shadow plan compare. The CLI and Tauri desktop app are **cockpit displays** over `~/.pgflight/control.sock` (mode `0600`), not alternate proxies.
 
 **License:** MIT · **Status:** early development (see [Roadmap](docs/ROADMAP.md)) · **Platform:** macOS (daemon + UI) · **Rust:** 1.78+ (`rust-toolchain.toml`)
 
@@ -142,6 +142,7 @@ Desktop: Tauri v2 + React, thin client of the control socket — see [apps/deskt
 | Shadow guard & EXPLAIN runner | `crates/pg-shadow` | [ADR-003](docs/adr/ADR-003-shadow-safety.md) |
 | Long-running proxy + control socket | `apps/daemon` (`pgflightd`) | [ADR-004](docs/adr/ADR-004-daemon-vs-embedded.md) |
 | Operator CLI | `apps/cli` | — |
+| Engineering audit (security, perf, invariants) | — | [AUDIT.md](docs/AUDIT.md) |
 | Native UI | `apps/desktop` (Phase 4) | [apps/desktop/README.md](apps/desktop/README.md) |
 
 ---

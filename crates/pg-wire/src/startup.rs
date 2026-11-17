@@ -58,6 +58,35 @@ pub fn parse_startup_pdu(mut buf: Bytes) -> Result<StartupMessage, WireError> {
     })
 }
 
+/// Lookup a startup parameter value (e.g. `application_name`).
+pub fn startup_param<'a>(params: &'a [u8], key: &str) -> Option<&'a str> {
+    let mut off = 0;
+    while off < params.len() {
+        let key_start = off;
+        while off < params.len() && params[off] != 0 {
+            off += 1;
+        }
+        if off >= params.len() {
+            break;
+        }
+        let k = std::str::from_utf8(&params[key_start..off]).ok()?;
+        off += 1;
+        let val_start = off;
+        while off < params.len() && params[off] != 0 {
+            off += 1;
+        }
+        if off >= params.len() {
+            break;
+        }
+        let v = std::str::from_utf8(&params[val_start..off]).ok()?;
+        off += 1;
+        if k == key {
+            return Some(v);
+        }
+    }
+    None
+}
+
 /// Serialize a startup packet (length + version + params) for upstream forward.
 pub fn encode_startup(version: i32, params: &[u8]) -> BytesMut {
     let total = 4 + 4 + params.len();

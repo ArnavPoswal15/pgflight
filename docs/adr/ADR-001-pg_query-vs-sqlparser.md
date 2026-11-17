@@ -1,5 +1,5 @@
 # ADR-001: pg_query instead of sqlparser-rs
-**Status:** proposed
+**Status:** Accepted
 **Decision:** use `pg_query` (libpg_query, the real Postgres parser) for fingerprinting, normalization and the shadow guard.
 **Why:** exact Postgres syntax fidelity, built-in fingerprint/normalize.
 **Costs:** needs a C toolchain; slower cold builds; harder cross-compiling.

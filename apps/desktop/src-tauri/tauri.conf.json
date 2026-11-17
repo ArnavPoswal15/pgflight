@@ -1,0 +1,25 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "pgflight",
+  "version": "0.1.0",
+  "identifier": "com.pgflight.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "pgflight — Query Flight Recorder",
+        "width": 960,
+        "height": 640
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://localhost:1420 ws://localhost:1420; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": { "active": false }
+}

@@ -24,6 +24,7 @@ pub async fn handle_connection(
     registry: SharedCancelRegistry,
     event_tx: Option<Sender<TelemetryEvent>>,
     drop_counter: Arc<DroppedEventCounter>,
+    connection_id: u64,
 ) -> Result<(), ProxyError> {
     let upstream_addr: SocketAddr = upstream_cfg
         .addr
@@ -50,6 +51,9 @@ pub async fn handle_connection(
                 continue;
             }
             StartupMessage::Startup { version, params } => {
+                let app_name = pg_wire::startup::startup_param(params.as_ref(), "application_name")
+                    .unwrap_or("")
+                    .to_string();
                 let upstream = connect_and_startup(&upstream_cfg, version, &params).await?;
                 let (ur, uw) = split_upstream(upstream);
                 bridge_connection(
@@ -60,6 +64,8 @@ pub async fn handle_connection(
                     cancel_target,
                     event_tx,
                     drop_counter,
+                    connection_id,
+                    app_name,
                 )
                 .await?;
                 return Ok(());
@@ -85,6 +91,7 @@ async fn read_startup_packet(client: &mut TcpStream) -> Result<Bytes, ProxyError
     Ok(full.freeze())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn bridge_connection(
     client: TcpStream,
     upstream_read: UpstreamRead,
@@ -93,8 +100,13 @@ async fn bridge_connection(
     cancel_target: CancelTarget,
     event_tx: Option<Sender<TelemetryEvent>>,
     drop_counter: Arc<DroppedEventCounter>,
+    connection_id: u64,
+    app_name: String,
 ) -> Result<(), ProxyError> {
-    let state: SharedConnState = Arc::new(parking_lot::Mutex::new(ConnState::new()));
+    let state: SharedConnState = Arc::new(parking_lot::Mutex::new(ConnState::new(
+        connection_id,
+        app_name,
+    )));
     let (client_read, client_write) = split(client);
 
     let state_b = state.clone();
@@ -178,9 +190,13 @@ async fn relay_client_to_upstream(
                     }
                     upstream.write_frame(tag, &frame.body).await?;
                 } else {
+                    // AUD-007: bodies above STREAM_THRESHOLD skip Parse/Bind/Q decode; see FEATURES_AND_LOGIC.md
                     {
                         let mut st = state.lock();
                         st.note_client_activity();
+                        if matches!(tag, b'E' | b'Q') {
+                            note_execute_enqueued(&mut st);
+                        }
                         st.push_frontend(tag, &[]);
                     }
                     upstream.stream_body_from(client, tag, body_len).await?;

@@ -7,6 +7,8 @@ Startup handling for SSLRequest / GSSENCRequest (`N`), CancelRequest (routed) an
 Expected-op queue (see `pg-wire-codec` skill). Handles Parse/Bind/Describe/Execute/Close/Sync, multi-statement `Q`, `I`, `s`, mid-pipeline errors (drain to Sync), async `N`/`S`/`A`.
 Params are captured up to 64KB with OIDs; larger are marked `truncated`.
 
+**Limitation (AUD-007):** Frontend messages whose body exceeds `STREAM_THRESHOLD` (64 KiB) are streamed zero-copy without SQL/param parsing. Timings and expected-op state still apply; flight-recorder rows may omit text for those queries.
+
 ## 3. Transactions
 `Z` status `I→T` opens a `txn_id`; `T/E→I` closes it. Idle-in-transaction fires when idle > 2s with an empty queue.
 

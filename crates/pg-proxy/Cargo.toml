@@ -15,6 +15,7 @@ tokio-rustls.workspace = true
 webpki-roots.workspace = true
 rustls-pemfile.workspace = true
 pg-wire = { path = "../pg-wire" }
+serde_json.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

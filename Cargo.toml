@@ -6,10 +6,11 @@ members = [
   "crates/pg-analyzer",
   "crates/pg-storage",
   "crates/pg-shadow",
+  "crates/pgflight-control",
   "apps/daemon",
   "apps/cli",
+  "apps/desktop/src-tauri",
 ]
-# apps/desktop (Tauri v2) is added in Phase 4; it is a thin client of pgflightd.
 
 [workspace.package]
 version = "0.1.0"
@@ -30,3 +31,7 @@ webpki-roots = "0.26"
 rustls-pemfile = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+pg_query = "6"
+hdrhistogram = "7"
+lru = "0.12"
+rusqlite = { version = "0.32", features = ["bundled"] }

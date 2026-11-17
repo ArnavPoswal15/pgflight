@@ -1,8 +1,7 @@
 # AGENTS.md: Engineering Rules (`pgflight`)
 
 ## Overview
-`pgflight` is a PostgreSQL wire-protocol proxy, N+1 detector and shadow replayer for macOS, in Rust.
-The proxy runs as a standalone daemon (`pgflightd`). The CLI and Tauri UI are thin clients over a Unix socket.
+`pgflight` is a **Query Flight Recorder** for PostgreSQL on macOS (Rust): a transparent wire proxy (`:5433`) is the **sensor**; `pgflightd` fingerprints, persists, and detects patterns; the CLI and Tauri UI are **cockpit** clients over `~/.pgflight/control.sock`.
 
 ## Workspace
 - `crates/pg-wire`: frame codec, separate `FrontendTag` / `BackendTag` enums, startup parsing.

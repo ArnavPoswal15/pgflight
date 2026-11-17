@@ -4,13 +4,30 @@ use crate::expected_op::{drain_to_next_sync, ExpectedOp};
 use crate::telemetry::{try_send_event, DroppedEventCounter, RawQueryEvent, TelemetryEvent};
 use parking_lot::Mutex;
 use pg_wire::frame::datarow_field_count;
+use pg_wire::frontend::{parse_bind, parse_execute_portal, parse_parse, parse_query};
 use pg_wire::BackendTag;
+use serde_json::json;
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::Sender;
 
 pub const IDLE_IN_TXN: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Clone)]
+struct PortalBind {
+    raw_sql: String,
+    params_json: Option<String>,
+    params_truncated: bool,
+}
+
+#[derive(Debug, Clone)]
+struct PendingQuery {
+    raw_sql: String,
+    params_json: Option<String>,
+    params_truncated: bool,
+}
 
 #[derive(Debug)]
 pub struct ConnState {
@@ -23,16 +40,22 @@ pub struct ConnState {
     pub copy_mode: bool,
     pub row_count: u64,
     pub last_client_activity: Instant,
+    pub connection_id: u64,
+    pub app_name: String,
+    statements: HashMap<String, String>,
+    portals: HashMap<String, PortalBind>,
+    pending_by_query_id: HashMap<u64, PendingQuery>,
+    pub last_error_code: Option<String>,
 }
 
 impl Default for ConnState {
     fn default() -> Self {
-        Self::new()
+        Self::new(0, String::new())
     }
 }
 
 impl ConnState {
-    pub fn new() -> Self {
+    pub fn new(connection_id: u64, app_name: String) -> Self {
         let now = Instant::now();
         Self {
             expected: VecDeque::new(),
@@ -44,6 +67,12 @@ impl ConnState {
             copy_mode: false,
             row_count: 0,
             last_client_activity: now,
+            connection_id,
+            app_name,
+            statements: HashMap::new(),
+            portals: HashMap::new(),
+            pending_by_query_id: HashMap::new(),
+            last_error_code: None,
         }
     }
 
@@ -52,12 +81,71 @@ impl ConnState {
     }
 
     pub fn push_frontend(&mut self, tag: u8, body: &[u8]) {
+        match tag {
+            b'P' => {
+                if let Ok(p) = parse_parse(body) {
+                    self.statements.insert(p.statement_name, p.query);
+                }
+            }
+            b'B' => {
+                if let Ok(b) = parse_bind(body) {
+                    let raw_sql = self
+                        .statements
+                        .get(&b.statement_name)
+                        .cloned()
+                        .unwrap_or_default();
+                    let params_json = params_to_json(&b.params);
+                    self.portals.insert(
+                        b.portal_name,
+                        PortalBind {
+                            raw_sql,
+                            params_json,
+                            params_truncated: b.params_truncated,
+                        },
+                    );
+                }
+            }
+            b'E' => {
+                let qid = self.next_query_id;
+                let portal = parse_execute_portal(body)
+                    .map(|e| e.portal_name)
+                    .unwrap_or_default();
+                self.attach_pending_for_execute(qid, &portal);
+            }
+            b'Q' => {
+                let qid = self.next_query_id;
+                if let Ok(q) = parse_query(body) {
+                    self.pending_by_query_id.insert(
+                        qid,
+                        PendingQuery {
+                            raw_sql: q.query,
+                            params_json: None,
+                            params_truncated: false,
+                        },
+                    );
+                }
+            }
+            _ => {}
+        }
         crate::expected_op::push_for_frontend(
             &mut self.expected,
             tag,
             body,
             &mut self.next_query_id,
         );
+    }
+
+    fn attach_pending_for_execute(&mut self, query_id: u64, portal_name: &str) {
+        if let Some(bind) = self.portals.get(portal_name).cloned() {
+            self.pending_by_query_id.insert(
+                query_id,
+                PendingQuery {
+                    raw_sql: bind.raw_sql,
+                    params_json: bind.params_json,
+                    params_truncated: bind.params_truncated,
+                },
+            );
+        }
     }
 
     pub fn idle_in_txn_elapsed(&self) -> Option<Duration> {
@@ -74,6 +162,39 @@ impl ConnState {
 }
 
 pub type SharedConnState = Arc<Mutex<ConnState>>;
+
+fn params_to_json(params: &[Option<Vec<u8>>]) -> Option<String> {
+    if params.is_empty() {
+        return None;
+    }
+    let arr: Vec<serde_json::Value> = params
+        .iter()
+        .map(|p| match p {
+            None => serde_json::Value::Null,
+            Some(bytes) => {
+                if let Ok(s) = std::str::from_utf8(bytes) {
+                    json!(s)
+                } else {
+                    json!(format!("\\x{}", hex_prefix(bytes)))
+                }
+            }
+        })
+        .collect();
+    serde_json::to_string(&arr).ok()
+}
+
+fn hex_prefix(bytes: &[u8]) -> String {
+    const MAX: usize = 64;
+    let take = bytes.len().min(MAX);
+    let mut s = String::with_capacity(take * 2);
+    for b in &bytes[..take] {
+        s.push_str(&format!("{b:02x}"));
+    }
+    if bytes.len() > MAX {
+        s.push('…');
+    }
+    s
+}
 
 pub fn resolve_backend(
     state: &mut ConnState,
@@ -102,6 +223,10 @@ pub fn resolve_backend(
     }
 
     if tag == b'E' {
+        state.last_error_code = pg_wire::backend_msg::parse_error_sqlstate(body);
+        if let Some(ExpectedOp::Execute { query_id }) = state.expected.front().cloned() {
+            emit_query_complete(state, query_id, event_tx, drop_counter);
+        }
         drain_to_next_sync(&mut state.expected);
         return;
     }
@@ -198,6 +323,15 @@ fn emit_query_complete(
     };
     state.queue_enqueued = None;
     state.exec_started = None;
+
+    let pending = state.pending_by_query_id.remove(&query_id);
+    let (raw_sql, params_json, params_truncated) = pending
+        .map(|p| (p.raw_sql, p.params_json, p.params_truncated))
+        .unwrap_or((String::new(), None, false));
+    let error_code = state.last_error_code.take();
+    let rows_returned = state.row_count;
+    state.row_count = 0;
+
     if let Some(tx) = event_tx {
         try_send_event(
             tx,
@@ -205,8 +339,15 @@ fn emit_query_complete(
             TelemetryEvent::QueryComplete(RawQueryEvent {
                 query_id,
                 txn_id: state.txn_id,
+                connection_id: state.connection_id,
+                app_name: state.app_name.clone(),
                 queue_wait_us,
                 exec_us,
+                raw_sql,
+                params_json,
+                params_truncated,
+                rows_returned,
+                error_code,
             }),
         );
     }
@@ -225,7 +366,7 @@ mod tests {
 
     #[test]
     fn datarow_does_not_pop_execute() {
-        let mut st = ConnState::new();
+        let mut st = ConnState::new(1, "test".into());
         st.expected.push_back(ExpectedOp::Execute { query_id: 1 });
         resolve_backend(
             &mut st,
@@ -240,10 +381,18 @@ mod tests {
 
     #[test]
     fn error_drains_to_sync() {
-        let mut st = ConnState::new();
+        let mut st = ConnState::new(1, "test".into());
         st.expected.push_back(ExpectedOp::ParseComplete);
         st.expected.push_back(ExpectedOp::Sync);
         resolve_backend(&mut st, b'E', &[], None, &DroppedEventCounter::default());
         assert_eq!(st.expected.front(), Some(&ExpectedOp::Sync));
+    }
+
+    #[test]
+    fn simple_query_captured() {
+        let mut st = ConnState::new(1, "app".into());
+        let body = b"SELECT 1\0";
+        st.push_frontend(b'Q', body);
+        assert!(st.pending_by_query_id.contains_key(&1));
     }
 }

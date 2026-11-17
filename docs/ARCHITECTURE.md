@@ -1,9 +1,13 @@
 # Architecture
 
+## Query Flight Recorder
+
+`pgflight` is a **Query Flight Recorder**. The wire proxy is the sensor; `FlightRecorder` (ring + SQLite WAL, future `.pgrec`) is the durable black box; `pg-analyzer` fingerprints and detects N+1; CLI/Tauri subscribe to the control plane for live log and pattern views.
+
 ## Planes
 1. **Data plane** (`pgflightd` / `pg-proxy`): forwards frames. No disk I/O, no SQL parsing, no guard held across `.await`.
-2. **Control/analysis plane**: consumes `RawQueryEvent` over bounded `mpsc` (cap 8192), fingerprints, detects anomalies, persists, runs shadow work.
-3. **Presentation**: CLI and Tauri UI as clients of the daemon's Unix socket (mode 0600).
+2. **Query Flight Recorder** (control/analysis): consumes `RawQueryEvent` over bounded `mpsc` (cap 8192), fingerprints, detects anomalies, persists (`flight_id`), runs shadow work (Phase 5+).
+3. **Cockpit** (presentation): CLI and Tauri UI as clients of the daemon's Unix socket (mode 0600).
 
 ```
 App ─► pgflightd :5433 ─► Postgres :5432

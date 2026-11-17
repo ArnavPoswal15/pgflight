@@ -6,12 +6,17 @@ license = "MIT"
 
 [dependencies]
 pg-proxy = { path = "../../crates/pg-proxy" }
+pg-analyzer = { path = "../../crates/pg-analyzer" }
+pg-storage = { path = "../../crates/pg-storage" }
+pgflight-control = { path = "../../crates/pgflight-control" }
 tokio.workspace = true
 clap.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+parking_lot.workspace = true
+rusqlite.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

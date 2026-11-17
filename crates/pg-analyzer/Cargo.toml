@@ -3,3 +3,11 @@ name = "pg-analyzer"
 version.workspace = true
 edition.workspace = true
 license = "MIT"
+
+[dependencies]
+thiserror.workspace = true
+pg_query.workspace = true
+hdrhistogram.workspace = true
+lru.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
