@@ -17,4 +17,4 @@ serde.workspace = true
 serde_json.workspace = true
 pgflight-control = { path = "../../../crates/pgflight-control" }
 parking_lot = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

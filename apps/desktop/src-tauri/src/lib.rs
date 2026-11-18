@@ -4,6 +4,7 @@ use pgflight_control::ControlClient;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Debug, Serialize, Clone)]
@@ -200,47 +201,57 @@ fn spawn_live_subscriber(app: AppHandle, state: Arc<LiveLogState>) {
     if state.started.swap(true, Ordering::SeqCst) {
         return;
     }
+    const RECONNECT: Duration = Duration::from_secs(2);
     tauri::async_runtime::spawn(async move {
-        let client = match ControlClient::default_socket() {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        let stream = match client
-            .request(&ControlRequest::Subscribe {
-                topics: vec!["events".into(), "leaderboard".into()],
-            })
-            .await
-        {
-            Ok(s) => s,
-            Err(_) => return,
-        };
-        for r in stream {
-            match r {
-                ControlResponse::FlightLogBatch(b) => {
-                    let mut guard = state.lines.lock();
-                    for e in b.events {
-                        guard.push(UiFlightLine {
-                            text: format!(
-                                "{} fp={} {:.2}ms rows={}",
-                                e.canonical_sql,
-                                e.fingerprint_id,
-                                e.exec_us as f64 / 1000.0,
-                                e.rows_returned
-                            ),
-                        });
-                    }
-                    if guard.len() > LIVE_LOG_CAP {
-                        let drop = guard.len() - LIVE_LOG_CAP;
-                        guard.drain(0..drop);
-                    }
-                    drop(guard);
-                    let _ = app.emit("pgflight://live-log", ());
+        loop {
+            let client = match ControlClient::default_socket() {
+                Ok(c) => c,
+                Err(_) => {
+                    tokio::time::sleep(RECONNECT).await;
+                    continue;
                 }
-                ControlResponse::PatternSnapshot(_) => {
-                    let _ = app.emit("pgflight://patterns", ());
+            };
+            let stream = match client
+                .request(&ControlRequest::Subscribe {
+                    topics: vec!["events".into(), "leaderboard".into()],
+                })
+                .await
+            {
+                Ok(s) => s,
+                Err(_) => {
+                    tokio::time::sleep(RECONNECT).await;
+                    continue;
                 }
-                _ => {}
+            };
+            for r in stream {
+                match r {
+                    ControlResponse::FlightLogBatch(b) => {
+                        let mut guard = state.lines.lock();
+                        for e in b.events {
+                            guard.push(UiFlightLine {
+                                text: format!(
+                                    "{} fp={} {:.2}ms rows={}",
+                                    e.canonical_sql,
+                                    e.fingerprint_id,
+                                    e.exec_us as f64 / 1000.0,
+                                    e.rows_returned
+                                ),
+                            });
+                        }
+                        if guard.len() > LIVE_LOG_CAP {
+                            let drop = guard.len() - LIVE_LOG_CAP;
+                            guard.drain(0..drop);
+                        }
+                        drop(guard);
+                        let _ = app.emit("pgflight://live-log", ());
+                    }
+                    ControlResponse::PatternSnapshot(_) => {
+                        let _ = app.emit("pgflight://patterns", ());
+                    }
+                    _ => {}
+                }
             }
+            tokio::time::sleep(RECONNECT).await;
         }
     });
 }
