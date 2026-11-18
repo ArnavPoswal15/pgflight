@@ -143,15 +143,15 @@ Full detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · behavior catalog: [
 
 pgflight is for teams that feel query pain in production but don't want another "always-on" observer slowing every request.
 
-| | Feature | What it does |
-|---|---|---|
-| 🔀 | **Drop-in proxy** | Point your connection string at `127.0.0.1:5433`. SSL negotiation, pipelined extended queries, `COPY`, and cancel keys behave as if you were talking to Postgres directly. |
-| 📊 | **See what actually runs** | Fingerprints (via `pg_query`), latency histograms, row counts, and transaction boundaries land in SQLite. When the analysis channel is full, the **newest** events are dropped, never client traffic. |
-| 🐛 | **Catch N+1 early** | Frequency-based detection inside transactions flags repeated read patterns before they become a 50-query loop in prod. See `docker/n_plus_one.py` for a reproducer. |
-| 🪞 | **Shadow safely** | Read-only shadow role, AST guard, `BEGIN READ ONLY`, `statement_timeout`, and a function denylist. `EXPLAIN` and replay never mutate your primary. |
-| ✈️ | **Record and compare** | ZSTD `.pgrec` flight logs plus snapshot reset on shadow enable A/B replays (e.g. index before/after) without treating shadow wall-clock as production truth. |
-| 🖥️ | **One daemon, many clients** | `pgflightd` holds the proxy and control socket. A UI crash does not stop forwarding. |
-| 📐 | **Engineered for agents** | `AGENTS.md`, ADRs under `docs/adr/`, and `.agents/skills/` encode the invariants (zero-copy `DataRow`, push-before-write, no heavy work on the forward path) so humans and coding agents implement the same contract. |
+| Feature | What it does |
+|---|---|
+| **Drop-in proxy** | Point your connection string at `127.0.0.1:5433`. SSL negotiation, pipelined extended queries, `COPY`, and cancel keys behave as if you were talking to Postgres directly. |
+| **See what actually runs** | Fingerprints (via `pg_query`), latency histograms, row counts, and transaction boundaries land in SQLite. When the analysis channel is full, the **newest** events are dropped, never client traffic. |
+| **Catch N+1 early** | Frequency-based detection inside transactions flags repeated read patterns before they become a 50-query loop in prod. See `docker/n_plus_one.py` for a reproducer. |
+| **Shadow safely** | Read-only shadow role, AST guard, `BEGIN READ ONLY`, `statement_timeout`, and a function denylist. `EXPLAIN` and replay never mutate your primary. |
+| **Record and compare** | ZSTD `.pgrec` flight logs plus snapshot reset on shadow enable A/B replays (e.g. index before/after) without treating shadow wall-clock as production truth. |
+| **One daemon, many clients** | `pgflightd` holds the proxy and control socket. A UI crash does not stop forwarding. |
+| **Engineered for agents** | `AGENTS.md`, ADRs under `docs/adr/`, and `.agents/skills/` encode the invariants (zero-copy `DataRow`, push-before-write, no heavy work on the forward path) so humans and coding agents implement the same contract. |
 
 ---
 
