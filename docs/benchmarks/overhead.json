@@ -1,0 +1,13 @@
+{
+  "measured_at": "2026-11-18T04:25:31Z",
+  "direct_latency_ms": 9.102,
+  "proxy_latency_ms": 10.720,
+  "proxy_minus_direct_ms": 1.618000,
+  "slo_target_added_p99_ms": 0.3,
+  "slo_is_guarantee": false,
+  "used_p99_line": false,
+  "pgbench": {
+    "clients": 16,
+    "duration_sec": 15
+  }
+}

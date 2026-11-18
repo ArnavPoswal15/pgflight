@@ -1,14 +1,16 @@
 //! `FlightRecorder` — ring buffer + SQLite WAL batch writer facade.
 
-use crate::pgrec::{NoopPgrecWriter, PgrecWriter};
+use crate::pgrec::{
+    pgrec_path_for_flight, unix_now_us, PgrecError, PgrecRecord, PgrecWriter, ZstdPgrecWriter,
+};
 use crate::ring::{RingBuffer, RingEntry, DEFAULT_RING_CAP};
 use crate::sqlite::{insert_events_batch, open_db, prune_by_age, SqliteError};
-use parking_lot::Mutex;
-use rusqlite::Connection;
 use std::mem;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
+use std::thread;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
@@ -19,6 +21,8 @@ pub enum RecorderError {
     Storage(#[from] SqliteError),
     #[error("recorder is not running")]
     NotRunning,
+    #[error("pgrec: {0}")]
+    Pgrec(#[from] PgrecError),
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +32,8 @@ pub struct FlightRecorderConfig {
     pub max_age_days: u64,
     pub max_db_size_mb: u64,
     pub ring_cap: usize,
+    /// When true, opens `data_dir/pgflight-{flight_id}.pgrec` for ZSTD block append.
+    pub enable_pgrec: bool,
 }
 
 impl Default for FlightRecorderConfig {
@@ -38,6 +44,7 @@ impl Default for FlightRecorderConfig {
             max_age_days: 14,
             max_db_size_mb: 512,
             ring_cap: DEFAULT_RING_CAP,
+            enable_pgrec: false,
         }
     }
 }
@@ -84,7 +91,49 @@ pub struct FlightRecorder {
     batch_tx: mpsc::Sender<PersistedQueryEvent>,
     events_recorded: AtomicU64,
     dropped_batch_events: AtomicU64,
-    _pgrec: Box<dyn PgrecWriter>,
+    pgrec_tx: Option<SyncSender<PgrecRecord>>,
+    pgrec_path: Option<PathBuf>,
+    pgrec_dropped: AtomicU64,
+}
+
+const PGREC_CHANNEL_CAP: usize = 8192;
+
+fn spawn_pgrec_writer(
+    path: PathBuf,
+    start_unix_us: u64,
+    rx: Receiver<PgrecRecord>,
+) -> Result<thread::JoinHandle<()>, PgrecError> {
+    thread::Builder::new()
+        .name("pgflight-pgrec".into())
+        .spawn(move || {
+            let mut writer = match ZstdPgrecWriter::create(&path, start_unix_us) {
+                Ok(w) => w,
+                Err(e) => {
+                    tracing::error!("pgrec writer open failed: {e}");
+                    return;
+                }
+            };
+            while let Ok(record) = rx.recv() {
+                if writer.append_record(&record).is_err() {
+                    tracing::warn!("pgrec append_record failed");
+                }
+            }
+            if let Err(e) = writer.flush() {
+                tracing::warn!("pgrec flush on shutdown failed: {e}");
+            }
+        })
+        .map_err(PgrecError::Io)
+}
+
+fn write_sqlite_batch(
+    db_path: &Path,
+    max_age_days: u64,
+    batch: &[PersistedQueryEvent],
+) -> Result<(), SqliteError> {
+    let conn = open_db(db_path)?;
+    insert_events_batch(&conn, batch)?;
+    let _ = prune_by_age(&conn, max_age_days);
+    Ok(())
 }
 
 static NEXT_FLIGHT_ID: AtomicU64 = AtomicU64::new(1);
@@ -97,9 +146,19 @@ impl FlightRecorder {
     pub fn open(cfg: FlightRecorderConfig) -> Result<Arc<Self>, RecorderError> {
         let flight_id = NEXT_FLIGHT_ID.fetch_add(1, Ordering::Relaxed);
         let db_path = Self::db_path_from_config(&cfg);
-        let conn = open_db(&db_path)?;
         let (batch_tx, batch_rx) = mpsc::channel(16_384);
         let ring = RingBuffer::new(cfg.ring_cap);
+        let data_dir = resolve_data_dir(&cfg.data_dir);
+        let (pgrec_path, pgrec_tx) = if cfg.enable_pgrec {
+            let path = pgrec_path_for_flight(&data_dir, flight_id);
+            let (tx, rx) = std::sync::mpsc::sync_channel(PGREC_CHANNEL_CAP);
+            let start = unix_now_us();
+            let handle = spawn_pgrec_writer(path.clone(), start, rx)?;
+            std::mem::forget(handle);
+            (Some(path), Some(tx))
+        } else {
+            (None, None)
+        };
         let recorder = Arc::new(Self {
             flight_id,
             redact_params: cfg.redact_params,
@@ -108,11 +167,13 @@ impl FlightRecorder {
             batch_tx,
             events_recorded: AtomicU64::new(0),
             dropped_batch_events: AtomicU64::new(0),
-            _pgrec: Box::new(NoopPgrecWriter),
+            pgrec_tx,
+            pgrec_path,
+            pgrec_dropped: AtomicU64::new(0),
         });
 
         let max_age_days = cfg.max_age_days;
-        tokio::spawn(batch_writer_task(batch_rx, conn, max_age_days));
+        tokio::spawn(batch_writer_task(batch_rx, db_path, max_age_days));
 
         Ok(recorder)
     }
@@ -191,14 +252,37 @@ impl FlightRecorder {
     pub fn db_path(&self) -> &PathBuf {
         &self.db_path
     }
+
+    pub fn pgrec_path(&self) -> Option<&Path> {
+        self.pgrec_path.as_deref()
+    }
+
+    /// Append a flight-log record to the ZSTD `.pgrec` file (recorder worker / daemon only).
+    ///
+    /// Bind bytes and raw SQL are written as given even when [`Self::redact_params`] strips
+    /// params from SQLite — replay and shadow EXPLAIN read from pgrec, not the WAL tables.
+    pub fn append_pgrec_record(&self, record: PgrecRecord) {
+        let Some(tx) = &self.pgrec_tx else {
+            return;
+        };
+        match tx.try_send(record) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.pgrec_dropped.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    pub fn pgrec_dropped(&self) -> u64 {
+        self.pgrec_dropped.load(Ordering::Relaxed)
+    }
 }
 
 async fn batch_writer_task(
     mut rx: mpsc::Receiver<PersistedQueryEvent>,
-    conn: Connection,
+    db_path: PathBuf,
     max_age_days: u64,
 ) {
-    let shared = Arc::new(Mutex::new(conn));
     let mut tick = interval(Duration::from_millis(250));
     let mut pending: Vec<PersistedQueryEvent> = Vec::new();
     loop {
@@ -206,11 +290,7 @@ async fn batch_writer_task(
             _ = tick.tick() => {
                 if !pending.is_empty() {
                     let batch = mem::take(&mut pending);
-                    let guard = shared.lock();
-                    if let Err(e) = insert_events_batch(&guard, &batch) {
-                        tracing::warn!("sqlite batch insert failed: {e}");
-                    }
-                    let _ = prune_by_age(&guard, max_age_days);
+                    flush_sqlite_batch(&db_path, max_age_days, batch).await;
                 }
             }
             msg = rx.recv() => {
@@ -219,16 +299,23 @@ async fn batch_writer_task(
                     None => {
                         if !pending.is_empty() {
                             let batch = mem::take(&mut pending);
-                            let guard = shared.lock();
-                            if let Err(e) = insert_events_batch(&guard, &batch) {
-                                tracing::warn!("sqlite flush on shutdown failed: {e}");
-                            }
+                            flush_sqlite_batch(&db_path, max_age_days, batch).await;
                         }
                         break;
                     }
                 }
             }
         }
+    }
+}
+
+async fn flush_sqlite_batch(db_path: &Path, max_age_days: u64, batch: Vec<PersistedQueryEvent>) {
+    let path = db_path.to_path_buf();
+    match tokio::task::spawn_blocking(move || write_sqlite_batch(&path, max_age_days, &batch)).await
+    {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::warn!("sqlite batch failed: {e}"),
+        Err(e) => tracing::warn!("sqlite spawn_blocking failed: {e}"),
     }
 }
 

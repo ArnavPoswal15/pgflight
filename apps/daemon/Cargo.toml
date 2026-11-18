@@ -9,6 +9,11 @@ pg-proxy = { path = "../../crates/pg-proxy" }
 pg-analyzer = { path = "../../crates/pg-analyzer" }
 pg-storage = { path = "../../crates/pg-storage" }
 pgflight-control = { path = "../../crates/pgflight-control" }
+pg-shadow = { path = "../../crates/pg-shadow" }
+pg-wire = { path = "../../crates/pg-wire" }
+hdrhistogram = { workspace = true }
+tokio-postgres = { workspace = true }
+bytes = { workspace = true }
 tokio.workspace = true
 clap.workspace = true
 tracing.workspace = true
@@ -17,6 +22,7 @@ serde.workspace = true
 serde_json.workspace = true
 parking_lot.workspace = true
 rusqlite.workspace = true
+libc = "0.2"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

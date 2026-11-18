@@ -100,12 +100,9 @@ impl N1Detector {
     }
 }
 
+/// N+1 detection runs in the recorder worker only (not the proxy hot path).
 pub fn is_select_like(_cache: &mut FingerprintCache, sql: &str) -> bool {
-    if sql.trim().is_empty() {
-        return false;
-    }
-    let upper = sql.trim().to_uppercase();
-    upper.starts_with("SELECT") || upper.starts_with("WITH")
+    pg_shadow::assert_select_only(sql).is_ok()
 }
 
 fn now_ms() -> u64 {
@@ -118,6 +115,13 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_select_like_rejects_dml() {
+        let mut cache = FingerprintCache::default();
+        assert!(!is_select_like(&mut cache, "INSERT INTO t VALUES (1)"));
+        assert!(is_select_like(&mut cache, "SELECT 1"));
+    }
 
     #[test]
     fn n_plus_one_burst_50() {

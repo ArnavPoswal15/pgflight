@@ -11,3 +11,8 @@ tokio.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["io-util", "macros", "rt"] }
+criterion.workspace = true
+
+[[bench]]
+name = "frame_parse"
+harness = false

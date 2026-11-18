@@ -10,10 +10,10 @@ Initial review: [Code audit + fixes](7d771df0-05fe-41aa-8a8e-0225fec3a063). Secu
 | Severity | Total | Fixed | Accepted | Open |
 |----------|------:|------:|---------:|-----:|
 | High | 4 | 4 | 0 | 0 |
-| Medium | 10 | 7 | 1 | 2 |
-| Low | 5 | 1 | 0 | 4 |
+| Medium | 10 | 8 | 1 | 1 |
+| Low | 5 | 4 | 0 | 1 |
 | Info | 2 | 0 | 0 | 2 |
-| **All** | **21** | **12** | **1** | **8** |
+| **All** | **21** | **16** | **1** | **4** |
 
 ## Scope
 
@@ -60,11 +60,11 @@ Aligned with `AGENTS.md` invariants 1–10, `docs/adr/` (001–004), and the Que
 | AUD-005 | Medium | Correctness | `pg-storage/src/recorder.rs` | SQLite batch writer dropped pending rows when channel closed without final flush. | Flush `pending` on receiver close. | **fixed** |
 | AUD-006 | Medium | Correctness | `pg-proxy/src/relay.rs` | Large frontend frames (`> STREAM_THRESHOLD`) skipped `note_execute_enqueued` for `Execute`/`Query`. | Mirror small-frame timing hooks on stream path. | **fixed** |
 | AUD-007 | Medium | Correctness | `pg-proxy/src/relay.rs` | Large `Parse`/`Bind`/`Query` bodies not parsed — empty body passed to `push_frontend`; SQL/params missing from telemetry while expected-op queue remains consistent. | Peek/stream-parse message headers for SQL capture, or document limitation. | **accepted** — documented in `FEATURES_AND_LOGIC.md` |
-| AUD-008 | Medium | Security | `apps/daemon/src/control.rs` | Unix socket mode `0600` but no peer credential check (any local user who can reach socket path if misconfigured). | Optional `getpeereid` / SO_PEERCRED gate. | open |
+| AUD-008 | Medium | Security | `apps/daemon/src/control.rs` | Unix socket mode `0600` but no peer credential check (any local user who can reach socket path if misconfigured). | Optional `getpeereid` / SO_PEERCRED gate. | **fixed** — `ControlPeerPolicy` + `getpeereid` / `SO_PEERCRED` (see `SECURITY.md`) |
 | AUD-009 | Low | Security | `apps/daemon/src/control.rs` | `Export` returns persisted rows without redaction filter at API layer (relies on storage redaction at insert). | Document; optionally strip `params_json` when `redact_params` in export path. | **fixed** — export emits timing/metadata only (no `raw_sql` / `params_json`) |
-| AUD-010 | Low | Architecture | `crates/pg-shadow/src/lib.rs` | Shadow EXPLAIN/replayer stub; ADR-003 layers not enforced. | Implement AST guard + READ ONLY role before enabling shadow. | open |
-| AUD-011 | Low | Correctness | `pg-analyzer/src/n1.rs` | `is_select_like` uses SQL prefix heuristic, not AST — false positives/negatives possible. | Tie to `pg_query` statement class when fingerprinting. | open |
-| AUD-012 | Low | Performance | `pg-storage/src/recorder.rs` | `batch_writer_task` holds `parking_lot::Mutex` during synchronous SQLite work on tokio runtime (can block other tasks on same worker). | Offload inserts to `spawn_blocking` or dedicated thread. | open |
+| AUD-010 | Low | Architecture | `crates/pg-shadow/src/lib.rs` | Shadow EXPLAIN/replayer stub; ADR-003 layers not enforced. | Implement AST guard + READ ONLY role before enabling shadow. | **fixed** — AST guard, READ ONLY wrapper, replayer |
+| AUD-011 | Low | Correctness | `pg-analyzer/src/n1.rs` | `is_select_like` uses SQL prefix heuristic, not AST — false positives/negatives possible. | Tie to `pg_query` statement class when fingerprinting. | **fixed** — `pg_shadow::assert_select_only` in recorder worker |
+| AUD-012 | Low | Performance | `pg-storage/src/recorder.rs` | `batch_writer_task` holds `parking_lot::Mutex` during synchronous SQLite work on tokio runtime (can block other tasks on same worker). | Offload inserts to `spawn_blocking` or dedicated thread. | **fixed** |
 | AUD-013 | Low | Quality | `apps/daemon/src/analysis.rs` | Multiple mutex acquisitions per fingerprint (`cache`, `leaderboard`, `n1`, `pending_anomaly`) — acceptable off hot path but increases deadlock review surface. | Consider single analysis lock or structured state object. | open |
 | AUD-014 | Info | Tests | `crates/pg-proxy/tests/phase_integration.rs` | Integration tests gated on env (`PGFLIGHT_IT_*`); no in-process unit tests for streaming large frames. | Add mock-stream tests for `relay` large-body path. | open |
 | AUD-015 | Info | Quality | `apps/desktop/src-tauri` | `fetch_patterns` returns empty vec; cockpit UI not wired to subscribe stream. | Complete Phase 4 IPC per Tauri skill. | open |

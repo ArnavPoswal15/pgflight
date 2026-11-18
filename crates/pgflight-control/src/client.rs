@@ -95,4 +95,14 @@ impl ControlClient {
             _ => Err(ControlError::Unexpected),
         }
     }
+
+    /// Single-response RPC (Explain, ReplayRun, CompareReplay, Status, …).
+    pub async fn request_one(&self, req: &ControlRequest) -> Result<ControlResponse, ControlError> {
+        let mut res = self.request(req).await?;
+        match res.pop() {
+            Some(ControlResponse::Error { message }) => Err(ControlError::Daemon(message)),
+            Some(r) => Ok(r),
+            None => Err(ControlError::Unexpected),
+        }
+    }
 }

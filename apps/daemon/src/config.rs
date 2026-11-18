@@ -25,11 +25,27 @@ pub struct Config {
     #[arg(long, default_value = "~/.pgflight/control.sock")]
     pub control_socket: String,
 
+    /// Allow any local UID to connect to the control socket (disables the peer-UID gate).
+    #[arg(
+        long = "allow-any-control-peer",
+        alias = "allow-any-peer",
+        default_value_t = false
+    )]
+    pub allow_any_control_peer: bool,
+
+    /// Allow one additional Unix UID (besides the daemon's UID) on the control socket.
+    #[arg(long)]
+    pub control_peer_uid: Option<u32>,
+
     #[arg(long, default_value = "~/.pgflight")]
     pub data_dir: String,
 
     #[arg(long, default_value_t = true)]
     pub record: bool,
+
+    /// Write ZSTD `.pgrec` flight log (on by default when `--record`).
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub pgrec: bool,
 
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub redact_params: bool,
@@ -41,6 +57,18 @@ pub struct Config {
     /// Required with `--no-upstream-tls-verify` (disables upstream certificate validation).
     #[arg(long, default_value_t = false)]
     pub insecure_upstream_tls: bool,
+
+    #[arg(
+        long,
+        default_value = "postgresql://pgflight_shadow:pgflight_shadow@127.0.0.1:5434/shop"
+    )]
+    pub shadow_url: String,
+
+    #[arg(long, default_value_t = false)]
+    pub shadow_disabled: bool,
+
+    #[arg(long, default_value_t = 3000)]
+    pub shadow_explain_timeout_ms: u64,
 }
 
 impl Config {

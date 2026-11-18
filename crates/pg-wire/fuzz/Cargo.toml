@@ -1,0 +1,41 @@
+[package]
+name = "pg-wire-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+bytes = "1"
+pg-wire = { path = ".." }
+
+[[bin]]
+name = "startup_decode"
+path = "fuzz_targets/startup_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_bind_parse"
+path = "fuzz_targets/parse_bind_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "backend_header_peek"
+path = "fuzz_targets/backend_header_peek.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cancel_request"
+path = "fuzz_targets/cancel_request.rs"
+test = false
+doc = false
+bench = false

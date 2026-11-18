@@ -10,7 +10,9 @@
 
 The transparent proxy on `:5433` is the **sensor**: traffic keeps flowing with near–zero-copy forwarding, while a bounded side channel fingerprints queries, writes a durable flight log (ring buffer + SQLite WAL), and flags N+1 bursts. Phase 5 adds `.pgrec` replay and shadow plan compare. The CLI and Tauri desktop app are **cockpit displays** over `~/.pgflight/control.sock` (mode `0600`), not alternate proxies.
 
-**License:** MIT · **Status:** early development (see [Roadmap](docs/ROADMAP.md)) · **Platform:** macOS (daemon + UI) · **Rust:** 1.78+ (`rust-toolchain.toml`)
+**License:** MIT · **Status:** production-ready for **single-user local macOS** (Phases 0–5; see [Roadmap](docs/ROADMAP.md)) · **Platform:** macOS (daemon + UI) · **Rust:** 1.78+ (`rust-toolchain.toml`)
+
+Latency SLO claims require a local run of [`scripts/bench-overhead.sh`](scripts/bench-overhead.sh); see [benchmarks](docs/benchmarks/overhead.md).
 
 ```
 App / ORM ──► :5433  pgflightd (proxy)  ──►  Postgres :5432
@@ -42,7 +44,7 @@ pgflight is built for teams that feel query pain in production but do not want a
 
 - **📐 Engineered for agents.** `AGENTS.md`, ADRs under `docs/adr/`, and `.agents/skills/` encode invariants (zero-copy `DataRow`, push-before-write, no heavy work on the forward path) so humans and coding agents implement the same contract.
 
-> **Note:** [Phases 0–2](docs/ROADMAP.md) (harness, framed proxy, expected-op queue) are implemented; **Phase 3+** (fingerprinting, N+1 alerts, SQLite, shadow replay, UI) is still roadmap.
+> **Note:** [Phases 0–5](docs/ROADMAP.md) are implemented (harness through shadow replay and plan compare). Phase 6 adds fuzzing, criterion benches, and measured overhead — see [benchmarks](docs/benchmarks/overhead.md).
 
 ---
 
@@ -56,7 +58,7 @@ pgflight is built for teams that feel query pain in production but do not want a
 | [Docker](https://docs.docker.com/get-docker/) | Primary + shadow Postgres for local dev |
 | `psql` or any Postgres client | Smoke tests through the proxy |
 
-Optional later: C toolchain for `pg_query` (ADR-001), `pgbench` for latency SLO checks.
+Optional: C toolchain for `pg_query` (ADR-001), `pgbench` + `./scripts/bench-overhead.sh` for latency SLO checks, `cargo-fuzz` (nightly) for `crates/pg-wire/fuzz`.
 
 ### 2. Start databases
 
@@ -64,6 +66,12 @@ Primary on **:5432**, shadow on **:5434**, seeded `shop` schema:
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d
+```
+
+Shadow EXPLAIN/replay uses a SELECT-only role on **:5434** (see [`docker/README.md`](docker/README.md)):
+
+```text
+postgresql://pgflight_shadow:pgflight_shadow@127.0.0.1:5434/shop
 ```
 
 Verify directly (before the proxy exists):
@@ -110,7 +118,7 @@ GitLab CI runs fmt, clippy, unit tests, and Docker integration — see [.gitlab-
 
 ### 5. Reproduce an N+1 pattern
 
-Once the proxy and detector are wired (Phase 3), run the demo against **:5433**:
+Run the demo against **:5433** (daemon with `--record` recommended):
 
 ```bash
 pip install 'psycopg[binary]'
@@ -126,6 +134,8 @@ cargo run -p pgflight-cli -- tail    # when implemented
 ```
 
 Desktop: Tauri v2 + React, thin client of the control socket — see [apps/desktop/README.md](apps/desktop/README.md).
+
+**60s demo:** `./scripts/demo-60s.sh` (compose + `pgflightd` + `n_plus_one.py` + `pgflight status`).
 
 **Tip:** Do not scaffold the UI until `psql`, an ORM, and `Ctrl+C` cancel work cleanly through the proxy.
 
@@ -195,7 +205,13 @@ pgflight/
 
 ## Performance target
 
-**&lt; 0.3 ms p99 added latency** on the proxy path vs direct Postgres is a **target SLO**, not a guarantee — measured with `pgbench` (:5432 vs :5433). See Phase 4 acceptance in [docs/ROADMAP.md](docs/ROADMAP.md).
+**&lt; 0.3 ms p99 added latency** on the proxy path vs direct Postgres is a **target SLO**, not a guarantee — measure with `./scripts/bench-overhead.sh` (`pgbench` on :5432 vs :5433). Results: [docs/benchmarks/overhead.md](docs/benchmarks/overhead.md). Micro-benches: `cargo bench -p pg-wire -p pg-analyzer -p pg-storage`.
+
+---
+
+## Security (local)
+
+Control socket **0600**, optional future peer-uid gate — [docs/SECURITY.md](docs/SECURITY.md).
 
 ---
 

@@ -20,7 +20,7 @@
 
 ## Phase 3: Query Flight Recorder core (Week 3)
 - [x] ADR-001/002 implemented; `pg_query` fingerprint + LRU (`pg-analyzer`)
-- [x] N+1 burst detector (`N1Detector`); `FlightRecorder` ring + SQLite WAL (250ms)
+- [x] N+1 burst detector (`N1Detector`, AST `is_select_like`); `FlightRecorder` ring + SQLite WAL (250ms)
 - [x] `pgflightd --record`, `--redact-params`, `--data-dir`; `scripts/accept-phase3.sh`
 - **Accept:** `n_plus_one.py` through :5433 → `anomalies.repeat_count >= 50` (needs Postgres + shop DB)
 
@@ -30,11 +30,13 @@
 - **Accept:** `pgbench -c 16 -T 15` direct vs :5433 — document p99 delta vs 0.3ms SLO (measurement)
 
 ## Phase 5: replay & plan compare (Week 5)
-- [ ] Guard + SELECT-only role + READ ONLY wrapper
-- [ ] EXPLAIN runner + heuristics
-- [ ] `.pgrec` ZSTD writer/reader; A/B replay with snapshot reset and warm-up
+- [x] Guard + SELECT-only role + READ ONLY wrapper
+- [x] EXPLAIN runner + heuristics
+- [x] `.pgrec` ZSTD writer/reader; A/B replay with snapshot reset and warm-up
 - **Accept:** drop/add index → A vs B diff shows Seq Scan removed
 
 ## Phase 6: hardening (Week 6)
-- [ ] `cargo-fuzz` on pg-wire; criterion benches; pgbench overhead chart
-- [ ] README with diagram, benchmarks, 60s demo
+- [x] `cargo-fuzz` targets on pg-wire (`crates/pg-wire/fuzz/`); criterion benches (`cargo bench -p pg-wire -p pg-analyzer -p pg-storage`)
+- [x] `scripts/bench-overhead.sh` → `docs/benchmarks/overhead.md` (+ JSON); SLO target &lt;0.3ms added p99 labeled as target, not guarantee (run on your machine to populate numbers)
+- [x] README phase status 0–5; `scripts/demo-60s.sh`; [SECURITY.md](SECURITY.md) stub
+- [x] Checked-in pgbench numbers (reference run in `docs/benchmarks/overhead.md`; re-run locally for your hardware)

@@ -16,8 +16,37 @@ pub struct RawQueryEvent {
     pub raw_sql: String,
     pub params_json: Option<String>,
     pub params_truncated: bool,
+    /// Type OIDs from the preceding Parse (extended query); empty for simple query.
+    pub param_oids: Vec<u32>,
+    /// Bind format codes per parameter (`None` = simple query).
+    pub bind_format_codes: Option<Vec<i16>>,
+    /// Raw parameter values (`encode_param_values` layout) when extended bind was captured.
+    pub bind_param_bytes: Vec<u8>,
     pub rows_returned: u64,
     pub error_code: Option<String>,
+}
+
+/// Simple-query or extended `SET` / `SET LOCAL` captured for `.pgrec` session-state replay.
+#[derive(Debug, Clone)]
+pub struct SessionSetEvent {
+    pub connection_id: u64,
+    pub txn_id: u64,
+    pub sql: String,
+}
+
+/// Ready-for-query transaction status transition (`Z` frame), per FEATURES_AND_LOGIC §2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TxnBoundaryKind {
+    Begin,
+    EndCommit,
+    EndAbort,
+}
+
+#[derive(Debug, Clone)]
+pub struct TxnBoundaryEvent {
+    pub connection_id: u64,
+    pub txn_id: u64,
+    pub kind: TxnBoundaryKind,
 }
 
 #[derive(Debug, Clone)]
@@ -27,8 +56,11 @@ pub struct IdleInTxnEvent {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum TelemetryEvent {
     QueryComplete(RawQueryEvent),
+    SessionSet(SessionSetEvent),
+    TxnBoundary(TxnBoundaryEvent),
     IdleInTxn(IdleInTxnEvent),
 }
 
