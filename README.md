@@ -2,47 +2,156 @@
   <img src="docs/assets/pgflight-logo.png" alt="pgflight — Observe. Detect. Replay. Neon PostgreSQL flight control for macOS." width="800">
 </p>
 
-<p align="center"><em>Transparent proxy, analyzer, and shadow replay — one daemon between your app and Postgres.</em></p>
+<h1 align="center">pgflight</h1>
 
-# pgflight — Query Flight Recorder
+<p align="center">
+  <strong>Observe. Detect. Replay.</strong><br>
+  <em>Transparent proxy, analyzer, and shadow replay — one daemon between your app and Postgres.</em>
+</p>
 
-**Record what happened. Spot expensive patterns. Investigate regressions.** A **Query Flight Recorder** for PostgreSQL on macOS — in Rust.
+<p align="center">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <img alt="Status: early development" src="https://img.shields.io/badge/status-early%20development-orange.svg">
+  <img alt="Platform: macOS" src="https://img.shields.io/badge/platform-macOS-lightgrey.svg">
+  <img alt="Rust 1.78+" src="https://img.shields.io/badge/rust-1.78%2B-dea584.svg">
+</p>
 
-The transparent proxy on `:5433` is the **sensor**: traffic keeps flowing with near–zero-copy forwarding, while a bounded side channel fingerprints queries, writes a durable flight log (ring buffer + SQLite WAL), and flags N+1 bursts. Phase 5 adds `.pgrec` replay and shadow plan compare. The CLI and Tauri desktop app are **cockpit displays** over `~/.pgflight/control.sock` (mode `0600`), not alternate proxies.
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="docs/ROADMAP.md">Roadmap</a> ·
+  <a href="docs/ARCHITECTURE.md">Docs</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
 
-**License:** MIT · **Status:** early development (see [Roadmap](docs/ROADMAP.md)) · **Platform:** macOS (daemon + UI) · **Rust:** 1.78+ (`rust-toolchain.toml`)
+---
 
+**pgflight** is a transparent PostgreSQL wire proxy, N+1 detector, and shadow query replayer for macOS, written in Rust.
+
+Put it between your app and Postgres. Traffic keeps flowing with near-zero-copy forwarding, while a side channel fingerprints queries, spots N+1 patterns, records flights, and safely replays them against a shadow database for `EXPLAIN` plans and A/B benchmarks. The daemon owns the hot path; the CLI and desktop UI are thin clients over a local control socket.
+
+> **Status:** early development. The Docker harness and N+1 demo script work today; the pass-through proxy and analysis pipeline are active roadmap work ([Phases 1–6](docs/ROADMAP.md)).
+
+---
+
+## Architecture
+
+```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 50, "rankSpacing": 70, "padding": 24, "curve": "basis"}}}%%
+flowchart TB
+  %% Dark text on light fills for readable contrast in light and dark themes
+  classDef cluster fill:#f8fafc,stroke:#0f172a,stroke-width:2px,rx:8,ry:8,color:#0f172a,font-size:14px;
+  classDef clients fill:#fff1f2,stroke:#b91c1c,stroke-width:1.5px,rx:6,ry:6,color:#071133,font-size:14px;
+  classDef gate fill:#eef2ff,stroke:#3730a3,stroke-width:1.5px,rx:6,ry:6,color:#071133,font-size:14px;
+  classDef svc fill:#fff7ed,stroke:#b45309,stroke-width:1.5px,rx:6,ry:6,color:#071133,font-size:14px;
+  classDef store fill:#f0fdf4,stroke:#166534,stroke-width:1.5px,rx:6,ry:6,color:#071133,font-size:14px;
+  classDef db fill:#ecfeff,stroke:#075985,stroke-width:1.5px,rx:6,ry:6,color:#071133,font-size:14px;
+  classDef inv fill:#f8fafc,stroke:#064e3b,stroke-width:1.5px,rx:6,ry:6,color:#071133,font-size:13px;
+  classDef pad fill:none,stroke:none,color:transparent;
+  linkStyle default stroke:#94a3b8,stroke-width:1.2px;
+
+  subgraph clients_g [Clients]
+    direction LR
+    APP["App / ORM<br/>connects to :5433"]:::clients
+    PSQL["psql / DB tools"]:::clients
+    DEMO["docker/n_plus_one.py<br/>N+1 demo"]:::clients
+  end
+
+  subgraph daemon [pgflightd — one daemon]
+    direction TB
+
+    subgraph dataplane [Data plane · hot path]
+      PROXY["pg-proxy :5433<br/>zero-copy forwarding<br/>expected-op queue · cancel registry"]:::gate
+    end
+
+    subgraph analysis [Analysis plane · bounded channels]
+      direction LR
+      AN["pg-analyzer<br/>fingerprints · N+1 detection"]:::svc
+      ST["pg-storage<br/>ring buffer · SQLite WAL · .pgrec"]:::store
+      SW["pg-shadow<br/>AST guard · EXPLAIN · replay"]:::svc
+    end
+
+    CTL["Control socket<br/>~/.pgflight/control.sock · mode 0600"]:::gate
+  end
+
+  subgraph databases [Databases]
+    direction LR
+    PG[("Primary Postgres<br/>:5432")]:::db
+    SH[("Shadow Postgres :5434<br/>read-only role")]:::db
+  end
+
+  subgraph presentation [Presentation · thin clients]
+    direction LR
+    CLI["pgflight-cli"]:::clients
+    UI["Tauri v2 + React UI"]:::clients
+  end
+
+  subgraph invariants [Core invariants]
+    direction LR
+    I1["Never block the client<br/>push-before-write"]:::inv
+    I2["Zero-copy DataRow<br/>no SQL parsing on hot path"]:::inv
+    I3["Shadow never mutates<br/>the primary"]:::inv
+  end
+
+  %% Request path
+  APP -->|wire protocol| PROXY
+  PSQL -->|wire protocol| PROXY
+  DEMO -->|wire protocol| PROXY
+  PROXY <-->|forwarded bytes| PG
+
+  %% Lossy telemetry tap and analysis pipeline
+  PROXY -.->|try_send · drops newest if full| AN
+  AN --> ST
+  ST --> SW
+  SW -->|BEGIN READ ONLY| SH
+
+  %% Control plane
+  CTL <--> AN
+  CTL <--> ST
+  CTL <--> SW
+  CLI <-->|Unix socket| CTL
+  UI <-->|Unix socket| CTL
+
+  %% Invariants (dashed, so they do not cover nodes)
+  PROXY -.-> I1
+  PROXY -.-> I2
+  SW -.-> I3
+
+  %% Invisible spacer at the bottom-right so the viewer's zoom / pan buttons
+  %% sit on empty space instead of covering the diagram
+  PADR[" "]:::pad
+  I3 ~~~ PADR
+
+  class clients_g,daemon,dataplane,analysis,databases,presentation,invariants cluster;
 ```
-App / ORM ──► :5433  pgflightd (proxy)  ──►  Postgres :5432
-                    │  bounded mpsc (try_send)
-                    ▼
-             analyzer + storage ──► ~/.pgflight/control.sock ──► CLI / Tauri UI
-                    │
-                    ▼
-             shadow worker ──► Shadow Postgres :5434  (EXPLAIN / replay)
-```
+
+Solid arrows are the request path or control flow. The dotted arrow from `pg-proxy` to `pg-analyzer` is a lossy telemetry tap: the proxy never blocks on analysis.
+
+Three planes, kept strictly separate:
+
+1. **Data plane:** forwards bytes, streams large frames, and locks `ConnState` only for brief, non-`await` sections. It never parses SQL or touches disk.
+2. **Analysis plane:** fingerprinting, detection, persistence, and shadow work run over bounded channels (`try_send`).
+3. **Presentation:** the CLI and Tauri UI talk to the daemon over a Unix socket. There is no embedded proxy in the UI.
+
+**Failure isolation:** SQLite backpressure drops telemetry, not client traffic. If the shadow database is unreachable, only status is affected. If the UI exits, the proxy keeps forwarding.
+
+Full detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · behavior catalog: [docs/FEATURES_AND_LOGIC.md](docs/FEATURES_AND_LOGIC.md).
 
 ---
 
 ## Why pgflight?
 
-pgflight is built for teams that feel query pain in production but do not want another “always-on” observer slowing every request.
+pgflight is for teams that feel query pain in production but don't want another "always-on" observer slowing every request.
 
-- **🔀 Drop-in proxy.** Point your connection string at `127.0.0.1:5433`. SSL negotiation, pipelined extended queries, `COPY`, and cancel keys behave like talking to Postgres directly — the data plane never parses SQL or touches disk.
-
-- **📊 See what actually runs.** Fingerprints (via `pg_query`), latency histograms, row counts, and transaction boundaries land in SQLite with bounded telemetry — when the analysis channel is full, **newest** events are dropped, not client traffic.
-
-- **🐛 Catch N+1 early.** Frequency-based detection inside transactions flags repeated read patterns before they become a 50-query loop in prod (see `docker/n_plus_one.py` for a reproducer).
-
-- **🪞 Shadow safely.** Read-only shadow role, AST guard, `BEGIN READ ONLY`, `statement_timeout`, and a function denylist — EXPLAIN and replay never mutate your primary.
-
-- **✈️ Record and compare.** ZSTD `.pgrec` flight logs plus snapshot reset on shadow enable A/B replays (e.g. index before/after) without trusting shadow wall-clock as production truth.
-
-- **🖥️ One daemon, many clients.** `pgflightd` holds the proxy and control socket (`~/.pgflight/control.sock`, mode `0600`). CLI and Tauri chat with the daemon; a UI crash does not stop forwarding.
-
-- **📐 Engineered for agents.** `AGENTS.md`, ADRs under `docs/adr/`, and `.agents/skills/` encode invariants (zero-copy `DataRow`, push-before-write, no heavy work on the forward path) so humans and coding agents implement the same contract.
-
-> **Note:** [Phases 0–2](docs/ROADMAP.md) (harness, framed proxy, expected-op queue) are implemented; **Phase 3+** (fingerprinting, N+1 alerts, SQLite, shadow replay, UI) is still roadmap.
+| | Feature | What it does |
+|---|---|---|
+| 🔀 | **Drop-in proxy** | Point your connection string at `127.0.0.1:5433`. SSL negotiation, pipelined extended queries, `COPY`, and cancel keys behave as if you were talking to Postgres directly. |
+| 📊 | **See what actually runs** | Fingerprints (via `pg_query`), latency histograms, row counts, and transaction boundaries land in SQLite. When the analysis channel is full, the **newest** events are dropped, never client traffic. |
+| 🐛 | **Catch N+1 early** | Frequency-based detection inside transactions flags repeated read patterns before they become a 50-query loop in prod. See `docker/n_plus_one.py` for a reproducer. |
+| 🪞 | **Shadow safely** | Read-only shadow role, AST guard, `BEGIN READ ONLY`, `statement_timeout`, and a function denylist. `EXPLAIN` and replay never mutate your primary. |
+| ✈️ | **Record and compare** | ZSTD `.pgrec` flight logs plus snapshot reset on shadow enable A/B replays (e.g. index before/after) without treating shadow wall-clock as production truth. |
+| 🖥️ | **One daemon, many clients** | `pgflightd` holds the proxy and control socket. A UI crash does not stop forwarding. |
+| 📐 | **Engineered for agents** | `AGENTS.md`, ADRs under `docs/adr/`, and `.agents/skills/` encode the invariants (zero-copy `DataRow`, push-before-write, no heavy work on the forward path) so humans and coding agents implement the same contract. |
 
 ---
 
@@ -52,15 +161,15 @@ pgflight is built for teams that feel query pain in production but do not want a
 
 | Tool | Purpose |
 |------|---------|
-| [Rust](https://rustup.rs/) (stable via `rust-toolchain.toml`) | Build workspace |
+| [Rust](https://rustup.rs/) (stable, pinned by `rust-toolchain.toml`) | Build the workspace |
 | [Docker](https://docs.docker.com/get-docker/) | Primary + shadow Postgres for local dev |
 | `psql` or any Postgres client | Smoke tests through the proxy |
 
-Optional later: C toolchain for `pg_query` (ADR-001), `pgbench` for latency SLO checks.
+Optional later: a C toolchain for `pg_query` ([ADR-001](docs/adr/ADR-001-pg_query-vs-sqlparser.md)) and `pgbench` for latency SLO checks.
 
-### 2. Start databases
+### 2. Start the databases
 
-Primary on **:5432**, shadow on **:5434**, seeded `shop` schema:
+This starts the primary on **:5432**, the shadow on **:5434**, and a seeded `shop` schema:
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d
@@ -72,7 +181,7 @@ Verify directly (before the proxy exists):
 psql "postgres://postgres:postgres@127.0.0.1:5432/shop" -c 'SELECT count(*) FROM orders;'
 ```
 
-### 3. Build the workspace
+### 3. Build and test
 
 ```bash
 cargo build --workspace
@@ -81,53 +190,48 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-### 4. Run the daemon
+### 4. Run the daemon *(roadmap: Phase 1)*
+
+> Today `pgflightd` prints a Phase 1 placeholder. The invocation below is the intended one once Phase 1 lands. Acceptance criteria (`psql` + ORM + cancel) are in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ```bash
 cargo run -p pgflightd -- --listen 127.0.0.1:5433 --upstream 127.0.0.1:5432
 ```
 
-TLS upstream (optional): add `--upstream-tls` and, if needed, `--upstream-ca path/to/ca.pem`.
-
-Then route the app through the proxy:
+Then route your app through the proxy:
 
 ```bash
 psql "postgres://postgres:postgres@127.0.0.1:5433/shop"
 ```
 
-Control socket (JSON ping): `~/.pgflight/control.sock` (mode `0600`).
+### 5. Reproduce an N+1 pattern *(roadmap: Phase 3)*
 
-### Verify Phases 0–2
-
-```bash
-make harness                    # Phase 0: compose + n_plus_one on :5432
-./scripts/accept-phase1.sh      # Phase 1: psql through pgflightd
-./scripts/accept-phase2.sh      # Phase 2: ignored Rust tests (daemon must be running)
-cargo test -p pg-proxy -- --ignored
-```
-
-GitLab CI runs fmt, clippy, unit tests, and Docker integration — see [.gitlab-ci.yml](.gitlab-ci.yml).
-
-### 5. Reproduce an N+1 pattern
-
-Once the proxy and detector are wired (Phase 3), run the demo against **:5433**:
+Once the proxy and detector are wired up, run the demo against **:5433**:
 
 ```bash
 pip install 'psycopg[binary]'
 python docker/n_plus_one.py
 ```
 
-The script issues one parent `SELECT` and fifty per-row child queries — the shape pgflight is designed to flag.
+The script issues one parent `SELECT` and fifty per-row child queries, which is exactly the shape pgflight is designed to flag.
 
-### 6. CLI and desktop UI (Phase 4)
+### 6. CLI and desktop UI *(roadmap: Phase 4)*
 
 ```bash
 cargo run -p pgflight-cli -- tail    # when implemented
 ```
 
-Desktop: Tauri v2 + React, thin client of the control socket — see [apps/desktop/README.md](apps/desktop/README.md).
+The desktop app is Tauri v2 + React and a thin client of the control socket. See [apps/desktop/README.md](apps/desktop/README.md).
 
-**Tip:** Do not scaffold the UI until `psql`, an ORM, and `Ctrl+C` cancel work cleanly through the proxy.
+> **Tip:** Don't scaffold the UI until `psql`, an ORM, and `Ctrl+C` cancel all work cleanly through the proxy.
+
+### Default ports
+
+| Port | Service |
+|------|---------|
+| `5432` | Primary Postgres |
+| `5433` | pgflight proxy (point your app here) |
+| `5434` | Shadow Postgres |
 
 ---
 
@@ -142,22 +246,7 @@ Desktop: Tauri v2 + React, thin client of the control socket — see [apps/deskt
 | Shadow guard & EXPLAIN runner | `crates/pg-shadow` | [ADR-003](docs/adr/ADR-003-shadow-safety.md) |
 | Long-running proxy + control socket | `apps/daemon` (`pgflightd`) | [ADR-004](docs/adr/ADR-004-daemon-vs-embedded.md) |
 | Operator CLI | `apps/cli` | — |
-| Engineering audit (security, perf, invariants) | — | [AUDIT.md](docs/AUDIT.md) |
 | Native UI | `apps/desktop` (Phase 4) | [apps/desktop/README.md](apps/desktop/README.md) |
-
----
-
-## Architecture in one minute
-
-Three planes — keep them separate:
-
-1. **Data plane** — forward bytes; stream large frames; lock `ConnState` only for brief, non-`await` sections.
-2. **Control / analysis plane** — fingerprint, detect, persist, shadow work over bounded channels (`try_send`).
-3. **Presentation** — CLI and Tauri over Unix socket; no embedded proxy in the UI.
-
-Failure isolation: SQLite backpressure drops telemetry; shadow unreachable → status only; UI exit → proxy continues.
-
-Full detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · behavior catalog: [docs/FEATURES_AND_LOGIC.md](docs/FEATURES_AND_LOGIC.md).
 
 ---
 
@@ -186,7 +275,7 @@ pgflight/
 
 | ADR | Decision |
 |-----|----------|
-| [001](docs/adr/ADR-001-pg_query-vs-sqlparser.md) | `pg_query` for fingerprinting and shadow guard |
+| [001](docs/adr/ADR-001-pg_query-vs-sqlparser.md) | `pg_query` for fingerprinting and the shadow guard |
 | [002](docs/adr/ADR-002-zero-copy-vs-row-inspection.md) | Zero-copy forwarding vs row inspection for N+1 |
 | [003](docs/adr/ADR-003-shadow-safety.md) | Shadow DB safety model |
 | [004](docs/adr/ADR-004-daemon-vs-embedded.md) | Standalone daemon vs embedded proxy |
@@ -195,15 +284,15 @@ pgflight/
 
 ## Performance target
 
-**&lt; 0.3 ms p99 added latency** on the proxy path vs direct Postgres is a **target SLO**, not a guarantee — measured with `pgbench` (:5432 vs :5433). See Phase 4 acceptance in [docs/ROADMAP.md](docs/ROADMAP.md).
+**&lt; 0.3 ms p99 added latency** on the proxy path vs direct Postgres is a **target SLO**, not a guarantee. It is measured with `pgbench` (`:5432` vs `:5433`). See Phase 4 acceptance in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ---
 
 ## Contributing
 
-1. Read [AGENTS.md](AGENTS.md) — invariants matter more than feature count on the hot path.
+1. Read [AGENTS.md](AGENTS.md). Invariants matter more than feature count on the hot path.
 2. Pick a phase in [docs/ROADMAP.md](docs/ROADMAP.md) and its acceptance checks.
-3. Before opening a PR:
+3. Before opening a PR, run:
 
    ```bash
    cargo fmt --all -- --check
@@ -211,7 +300,7 @@ pgflight/
    cargo test --workspace
    ```
 
-Skills for agents: `.agents/skills/pg-wire-codec/`, `sql-ast-analyzer/`, `tauri-ipc-bridge/`.
+Skills for agents live in `.agents/skills/` (`pg-wire-codec/`, `sql-ast-analyzer/`, `tauri-ipc-bridge/`).
 
 ---
 
@@ -220,3 +309,7 @@ Skills for agents: `.agents/skills/pg-wire-codec/`, `sql-ast-analyzer/`, `tauri-
 - [Roadmap (6 weeks)](docs/ROADMAP.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Features & logic](docs/FEATURES_AND_LOGIC.md)
+
+---
+
+<p align="center"><sub>MIT licensed · Built with Rust 🦀</sub></p>
